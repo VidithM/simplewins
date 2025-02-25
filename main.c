@@ -1,9 +1,11 @@
+#include <assert.h>
+#include <fcntl.h>
+#include <math.h>
 #include <stdlib.h>
 #include <stdint.h>
 #include <stdio.h>
-#include <math.h>
 #include <string.h>
-#include <fcntl.h>
+#include <unistd.h>
 
 #include <sys/mman.h>
 #include <sys/ioctl.h>
@@ -61,15 +63,33 @@ const char *util_lookup_connector_type_name(unsigned int type)
                      ARRAY_SIZE(connector_type_names));
 }
 
-void set_color (int *buf, uint64_t sz, int r, int g, int b, int a) {
-    memset (buf, 0, sizeof(buf));
-    sz /= sizeof(int);
-    for (uint64_t i = 0; i < sz; i++) {
-        buf[i] ^= (a << 24);
-        buf[i] ^= (r << 16);
-        buf[i] ^= (g << 8);
-        buf[i] ^= b; 
-    }
+static int *buf_mmap = NULL;
+static uint64_t buf_size, buf_bpp, buf_pitch;
+
+void set_color (int r, int g, int b, int a,
+    int x, int y, int w, int h) {
+    int *buf = buf_mmap;
+
+    int buf_w = buf_pitch / (buf_bpp / 8); 
+    int buf_h = buf_size / buf_pitch;
+    
+    assert (x >= 0 && x < buf_w);
+    assert (y >= 0 && y < buf_h);
+    assert (w > 0 && (x + w - 1 < buf_w));
+    assert (h > 0 && (y + h - 1 < buf_h));
+
+    int start = buf_w * y + x;
+    int end = buf_w * (y + h - 1) + (x + w - 1); 
+
+    for (int i = start; i <= end; i += buf_w) {
+        for (int j = i; j < i + w; j++) {
+            buf[j] = 0;
+            buf[j] ^= (a << 24);
+            buf[j] ^= (r << 16);
+            buf[j] ^= (g << 8);
+            buf[j] ^= b; 
+        }
+    } 
 }
 
 int main() {
@@ -85,11 +105,13 @@ int main() {
     struct drm_mode_destroy_dumb destroy_dumb_args;
 
     int buf_handle, buf_id;
-    uint64_t buf_size;
     uint64_t buf_mmap_offset; 
-    int *buf_mmap = NULL;
 
     fd = open (dri_device, O_RDWR);
+    if (fd == -1) {
+        printf ("Could not open dri device\n");
+        return -1;
+    }
 
     resources = drmModeGetResources (fd);
     if (resources == NULL) {
@@ -149,6 +171,7 @@ int main() {
     create_dumb_args.height = resolution->vdisplay;
     create_dumb_args.width = resolution->hdisplay;
     create_dumb_args.bpp = 32;
+    buf_bpp = 32;
     create_dumb_args.flags = 0;
 
     // Gives pitch, size, handle
@@ -161,6 +184,7 @@ int main() {
 
     buf_handle = create_dumb_args.handle;
     buf_size = create_dumb_args.size;
+    buf_pitch = create_dumb_args.pitch;
     printf ("DRM FB handle: 0x%x\n", buf_handle);
 
     ret = drmModeAddFB (fd, resolution->hdisplay, resolution->vdisplay, 24, 32, create_dumb_args.pitch, buf_handle, &buf_id); 
@@ -191,7 +215,9 @@ int main() {
         ret = -1;
         goto free_dumb;
     }
-    set_color (buf_mmap, buf_size, 150, 75, 0, 255);
+    memset (buf_mmap, 0, buf_size);
+    set_color (150, 75, 0, 255, 30, 40, resolution->hdisplay / 4, resolution->vdisplay / 4);
+    set_color (0, 75, 100, 255, 530, 540, resolution->hdisplay / 4, resolution->vdisplay / 4);
     ret = drmModeSetCrtc (fd, crtc->crtc_id, buf_id, 0, 0, &connector->connector_id, 1, resolution); 
     if (ret) {
         printf ("drmModeSetCrtc failed w/ ret: %d\n", ret);
@@ -207,6 +233,7 @@ free_dumb:
     destroy_dumb_args.handle = buf_handle; 
     ioctl (fd, DRM_IOCTL_MODE_DESTROY_DUMB, &destroy_dumb_args); 
 done:
+    close (fd);
     drmModeFreeResources (resources);  
     drmModeFreeConnector (connector);
     drmModeFreeEncoder (encoder);
