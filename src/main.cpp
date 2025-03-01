@@ -1,9 +1,13 @@
 #include "simplewins.hpp"
+#include "eventqueue.hpp"
+#include "input.hpp"
 
 #include <sys/mman.h>
 #include <sys/ioctl.h>
 
 const std::string dri_device = "/dev/dri/card0";
+
+extern simplewins::EventQueue events;
 
 static int fd;
 static int *buf_mmap = NULL;
@@ -179,17 +183,21 @@ int main() {
     memset (buf_mmap, 0, buf_size);
     printf ("%d x %d\n", xres, yres);
 
+    setup_input();
+
     while (1) {
         ret = render();
         if (ret) {
             printf ("drmModeSetCrtc failed w/ ret: %d\n", ret);
             ret = -1;
             goto dumb_unmap;
-        }    
+        }
     }
-    ret = 0;
 
+    ret = 0;
+    
 dumb_unmap:
+    teardown_input();
     munmap (buf_mmap, buf_size); 
 free_dumb:
     destroy_dumb_args.handle = buf_handle; 

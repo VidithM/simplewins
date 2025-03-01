@@ -3,4 +3,4 @@
 SIMPLEWINS_SOURCES := $(wildcard ./src/*.cpp)
 
 all:
-	@g++ $(SIMPLEWINS_SOURCES) `pkg-config --cflags --libs libinput libdrm` -I./include -o ./build/main
+	@g++ $(SIMPLEWINS_SOURCES) `pkg-config --cflags --libs libinput libdrm libudev` -I./include -o ./build/main

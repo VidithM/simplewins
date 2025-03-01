@@ -1,3 +1,4 @@
 #pragma once
 
-void handle_mouse
+int setup_input();
+void teardown_input();
