@@ -7,26 +7,35 @@
 #include <libinput.h>
 
 simplewins::EventQueue input_queue;
+extern bool kill;
 
 static pthread_t event_thread;
 static udev *ud;
 static libinput *li;
 static libinput_event *li_event;
 
+
 static void* handle_input(void *args) {
     int ret;
+    int cnt = 0;
     while (1) {
         pollfd fd = {
             .fd = libinput_get_fd (li),
             .events = POLLIN,
             .revents = 0
         };
-        poll (&fd, 1, -1); 
+        poll (&fd, 1, 100); 
+        printf ("poll event/timeout\n");
+        if (kill) {
+            break;
+        }
         libinput_dispatch (li);
         li_event = libinput_get_event (li);
         if (li_event == NULL) {
             continue;
         }
+        cnt++;
+        printf ("got event %d\n", cnt);
         libinput_event_destroy (li_event);
     }
     return NULL;

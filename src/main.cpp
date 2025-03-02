@@ -1,6 +1,7 @@
 #include "simplewins.hpp"
 #include "eventqueue.hpp"
 #include "input.hpp"
+#include "utils/libdrm_utils.hpp"
 
 #include <sys/mman.h>
 #include <sys/ioctl.h>
@@ -8,6 +9,7 @@
 const std::string dri_device = "/dev/dri/card0";
 
 extern simplewins::EventQueue events;
+bool kill = false;
 
 static int fd;
 static int *buf_mmap = NULL;
@@ -52,7 +54,7 @@ static int render () {
     set_color (150, 75, 0, 255, 30, 40, xres / 4, yres / 4);
     set_color (0, 75, 100, 255, 530, 540, xres / 4, yres / 4);
     set_color (255, 255, 255, 255, 1920, 1080, 10, 10);
-    ret = drmModeSetCrtc (fd, crtc->crtc_id, buf_id, 0, 0, &connector->connector_id, 1, resolution); 
+    ret = drmModeSetCrtc (fd, crtc->crtc_id, buf_id, 0, 0, &connector->connector_id, 1, resolution);
     return ret;
 }
 
@@ -197,6 +199,7 @@ int main() {
     ret = 0;
     
 dumb_unmap:
+    kill = true;
     teardown_input();
     munmap (buf_mmap, buf_size); 
 free_dumb:
