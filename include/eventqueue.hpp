@@ -4,7 +4,7 @@
 #include <vector>
 #include <queue>
 
-namespace simplewins {
+namespace swins {
     enum EventType {
         MOUSE_MOTION,
         MOUSE_LMB_DOWN,
@@ -21,6 +21,7 @@ namespace simplewins {
 
         public:
             EventQueue() = default;
+            ~EventQueue() = default;
             size_t count ();
             void push_event (Event event);
             Event poll_event ();

@@ -6,7 +6,7 @@
 #include <libudev.h>
 #include <libinput.h>
 
-simplewins::EventQueue input_queue;
+swins::EventQueue input_queue;
 extern bool kill;
 
 static pthread_t event_thread;
@@ -17,15 +17,13 @@ static libinput_event *li_event;
 
 static void* handle_input(void *args) {
     int ret;
-    int cnt = 0;
     while (1) {
         pollfd fd = {
             .fd = libinput_get_fd (li),
             .events = POLLIN,
             .revents = 0
         };
-        poll (&fd, 1, 100); 
-        printf ("poll event/timeout\n");
+        poll (&fd, 1, 1000); 
         if (kill) {
             break;
         }
@@ -34,8 +32,22 @@ static void* handle_input(void *args) {
         if (li_event == NULL) {
             continue;
         }
-        cnt++;
-        printf ("got event %d\n", cnt);
+        enum libinput_event_type event_type = libinput_event_get_type (li_event);
+        switch (event_type) {
+            case LIBINPUT_EVENT_POINTER_MOTION:
+                {
+                    libinput_event_pointer *pointer_event = libinput_event_get_pointer_event (li_event);
+                    double dx = libinput_event_pointer_get_dx (pointer_event);
+                    double dy = libinput_event_pointer_get_dy (pointer_event);
+                    swins::Event motion = {swins::MOUSE_MOTION, std::vector<int> {(int) dx, (int) dy}};
+                    input_queue.push_event (motion);
+                }
+                break;
+            case LIBINPUT_EVENT_POINTER_BUTTON:
+                break;
+            default:
+                break;
+        }
         libinput_event_destroy (li_event);
     }
     return NULL;

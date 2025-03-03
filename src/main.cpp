@@ -1,4 +1,5 @@
 #include "simplewins.hpp"
+#include "components.hpp"
 #include "eventqueue.hpp"
 #include "input.hpp"
 #include "utils/libdrm_utils.hpp"
@@ -8,7 +9,7 @@
 
 const std::string dri_device = "/dev/dri/card0";
 
-extern simplewins::EventQueue events;
+extern swins::EventQueue input_queue;
 bool kill = false;
 
 static int fd;
@@ -16,6 +17,8 @@ static int *buf_mmap = NULL;
 static uint32_t buf_id;
 static uint64_t buf_size, buf_bpp, buf_pitch;
 static int xres, yres;
+
+static swins::cursor cursor;
 
 static drmModeResPtr resources = NULL;
 static drmModeConnectorPtr connector = NULL;
@@ -51,9 +54,36 @@ static void set_color (int r, int g, int b, int a,
 
 static int render () {
     int ret;
-    set_color (150, 75, 0, 255, 30, 40, xres / 4, yres / 4);
-    set_color (0, 75, 100, 255, 530, 540, xres / 4, yres / 4);
-    set_color (255, 255, 255, 255, 1920, 1080, 10, 10);
+    if (!input_queue.count()) {
+        // Nothing to do
+        return 0;
+    }
+    bool redraw_windows = false;
+    bool redraw_cursor = false;
+    swins::Event next = input_queue.poll_event();
+    switch (next.type) {
+        case swins::MOUSE_MOTION:
+            {
+                cursor.x += next.args[0];
+                cursor.y += next.args[1];
+                redraw_cursor = true;
+            }
+            break;
+        default:
+            printf ("Unrecoginzed event type\n");
+            return -1;
+    }
+    if (redraw_windows) {
+        set_color (150, 75, 0, 255, 30, 40, xres / 4, yres / 4);
+        set_color (0, 75, 100, 255, 530, 540, xres / 4, yres / 4);
+    }
+
+    // Cursor:
+    if (redraw_cursor) {
+        set_color (cursor.color[0], cursor.color[1], cursor.color[2],
+            255, cursor.x, cursor.y, 10, 10);
+    }
+
     ret = drmModeSetCrtc (fd, crtc->crtc_id, buf_id, 0, 0, &connector->connector_id, 1, resolution);
     return ret;
 }
@@ -182,11 +212,13 @@ int main() {
     xres = buf_pitch / (buf_bpp / 8);
     yres = buf_size / buf_pitch;
 
-    memset (buf_mmap, 0, buf_size);
     printf ("%d x %d\n", xres, yres);
 
     setup_input();
-
+    cursor.x = xres / 2;
+    cursor.y = xres / 2;
+    cursor.color[0] = 0; cursor.color[1] = 100; cursor.color[2] = 100;
+    
     while (1) {
         ret = render();
         if (ret) {
