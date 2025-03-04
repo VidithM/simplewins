@@ -14,7 +14,7 @@ void swins::EventQueue::push_event (swins::Event event) {
 swins::Event swins::EventQueue::poll_event () {
     Event ret;
     queue_lock.lock();
-    if (!this->count()) {
+    if (!events.size()) {
         throw std::logic_error ("Polling empty event queue");
     }
     ret = events.front();

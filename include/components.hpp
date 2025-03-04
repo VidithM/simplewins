@@ -2,7 +2,7 @@
 
 namespace swins {
     struct cursor {
-        int x, y;
+        int x, y, w, h;
         char color[3];
     };
     struct window {

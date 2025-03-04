@@ -3,14 +3,17 @@
 #include "eventqueue.hpp"
 #include "input.hpp"
 #include "utils/libdrm_utils.hpp"
+#include "utils/timer.hpp"
 
 #include <sys/mman.h>
 #include <sys/ioctl.h>
+#include <sched.h>
 
 const std::string dri_device = "/dev/dri/card0";
 
 extern swins::EventQueue input_queue;
 bool kill = false;
+swins::utils::Timer timer;
 
 static int fd;
 static int *buf_mmap = NULL;
@@ -58,20 +61,28 @@ static int render () {
         // Nothing to do
         return 0;
     }
-    bool redraw_windows = false;
+    bool redraw_windows = true;
     bool redraw_cursor = false;
-    swins::Event next = input_queue.poll_event();
-    switch (next.type) {
-        case swins::MOUSE_MOTION:
-            {
-                cursor.x += next.args[0];
-                cursor.y += next.args[1];
-                redraw_cursor = true;
-            }
-            break;
-        default:
-            printf ("Unrecoginzed event type\n");
-            return -1;
+    struct swins::cursor old_cursor = cursor;
+    for (int i = 0; i < input_queue.count(); i++) {
+        swins::Event next = input_queue.poll_event();
+        switch (next.type) {
+            case swins::MOUSE_MOTION:
+                {
+                    cursor.x += next.args[0];
+                    cursor.y += next.args[1];
+
+                    cursor.x = std::min(cursor.x, xres - cursor.w);
+                    cursor.x = std::max(cursor.x, 0);
+                    cursor.y = std::min(cursor.y, yres - cursor.h);
+                    cursor.y = std::max(cursor.y, 0);
+                    redraw_cursor = true;
+                }
+                break;
+            default:
+                printf ("Unrecoginzed event type\n");
+                return -1;
+        }
     }
     if (redraw_windows) {
         set_color (150, 75, 0, 255, 30, 40, xres / 4, yres / 4);
@@ -80,10 +91,11 @@ static int render () {
 
     // Cursor:
     if (redraw_cursor) {
+        // Remove old cursor
+        set_color (0, 0, 0, 0, old_cursor.x, old_cursor.y, cursor.w, cursor.h);
         set_color (cursor.color[0], cursor.color[1], cursor.color[2],
-            255, cursor.x, cursor.y, 10, 10);
+            255, cursor.x, cursor.y, cursor.w, cursor.h);
     }
-
     ret = drmModeSetCrtc (fd, crtc->crtc_id, buf_id, 0, 0, &connector->connector_id, 1, resolution);
     return ret;
 }
@@ -96,6 +108,7 @@ int main() {
     struct drm_mode_create_dumb create_dumb_args;
     struct drm_mode_map_dumb map_dumb_args;
     struct drm_mode_destroy_dumb destroy_dumb_args;
+    struct sched_param sched_prio;
 
     uint32_t buf_handle;
     uint64_t buf_mmap_offset; 
@@ -214,9 +227,14 @@ int main() {
 
     printf ("%d x %d\n", xres, yres);
 
-    setup_input();
+    ret = setup_input();
+    if (ret) {
+        goto dumb_unmap;
+    }
+
     cursor.x = xres / 2;
     cursor.y = xres / 2;
+    cursor.w = 10; cursor.h = 10;
     cursor.color[0] = 0; cursor.color[1] = 100; cursor.color[2] = 100;
     
     while (1) {
@@ -224,16 +242,17 @@ int main() {
         if (ret) {
             printf ("drmModeSetCrtc failed w/ ret: %d\n", ret);
             ret = -1;
-            goto dumb_unmap;
+            goto input_thread_teardown;
         }
     }
 
     ret = 0;
-    
-dumb_unmap:
+
+input_thread_teardown:
     kill = true;
     teardown_input();
-    munmap (buf_mmap, buf_size); 
+dumb_unmap:
+   munmap (buf_mmap, buf_size); 
 free_dumb:
     destroy_dumb_args.handle = buf_handle; 
     ioctl (fd, DRM_IOCTL_MODE_DESTROY_DUMB, &destroy_dumb_args); 

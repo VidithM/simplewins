@@ -1,5 +1,6 @@
 #include "simplewins.hpp"
 #include "eventqueue.hpp"
+#include "utils/timer.hpp"
 
 #include <poll.h>
 #include <pthread.h>
@@ -8,6 +9,7 @@
 
 swins::EventQueue input_queue;
 extern bool kill;
+extern swins::utils::Timer timer;
 
 static pthread_t event_thread;
 static udev *ud;
