@@ -13,7 +13,7 @@ const std::string dri_device = "/dev/dri/card0";
 
 extern swins::EventQueue input_queue;
 bool kill = false;
-swins::utils::Timer timer;
+static swins::utils::Timer timer;
 
 static int fd;
 static int *buf_mmap = NULL;
@@ -22,6 +22,7 @@ static uint64_t buf_size, buf_bpp, buf_pitch;
 static int xres, yres;
 
 static swins::cursor cursor;
+static std::vector<swins::window> windows;
 
 static drmModeResPtr resources = NULL;
 static drmModeConnectorPtr connector = NULL;
@@ -55,14 +56,13 @@ static void set_color (int r, int g, int b, int a,
     } 
 }
 
-static int render () {
+static int render (bool force_render) {
     int ret;
-    if (!input_queue.count()) {
+    if ((!force_render) && (!input_queue.count())) {
         // Nothing to do
         return 0;
     }
-    bool redraw_windows = true;
-    bool redraw_cursor = false;
+    bool redraw_cursor = force_render;
     struct swins::cursor old_cursor = cursor;
     for (int i = 0; i < input_queue.count(); i++) {
         swins::Event next = input_queue.poll_event();
@@ -84,9 +84,17 @@ static int render () {
                 return -1;
         }
     }
-    if (redraw_windows) {
-        set_color (150, 75, 0, 255, 30, 40, xres / 4, yres / 4);
-        set_color (0, 75, 100, 255, 530, 540, xres / 4, yres / 4);
+
+    int cursor_window = -1; // which window is the cursor over, -1 if none
+
+    for (int i = 0; i < windows.size(); i++) {         
+        assert (windows[i].rank >= 0 && windows[i].rank < windows.size());
+
+        bool redraw = force_render || windows[i].intersect (old_cursor);
+        if (!redraw) { continue; }        
+
+        swins::window win = windows[i];
+        set_color (win.color[0], win.color[1], win.color[2], 255, win.x, win.y, win.w, win.h);
     }
 
     // Cursor:
@@ -112,6 +120,8 @@ int main() {
 
     uint32_t buf_handle;
     uint64_t buf_mmap_offset; 
+
+    bool force_render;
 
     fd = open (dri_device.c_str(), O_RDWR);
     if (fd == -1) {
@@ -169,7 +179,8 @@ int main() {
 
     for (int i = 0; i < connector->count_modes; i++) {
         resolution = &connector->modes[i];
-        if (resolution->type & DRM_MODE_TYPE_PREFERRED) {
+        bool ok = (resolution->hdisplay == 2560); // = resolution->type & DRM_MODE_TYPE_PREFERRED
+        if (ok) {
             break;
         }
     }
@@ -236,14 +247,36 @@ int main() {
     cursor.y = xres / 2;
     cursor.w = 10; cursor.h = 10;
     cursor.color[0] = 0; cursor.color[1] = 100; cursor.color[2] = 100;
-    
+      
+    windows.resize (2);
+
+    windows[0].x = 30; windows[0].y = 40; windows[0].w = xres / 4; windows[0].h = yres / 4;
+    windows[0].color[0] = 150; windows[0].color[1] = 75; windows[0].color[2] = 0; 
+
+    windows[1].x = 530; windows[1].y = 540; windows[1].w = xres / 4; windows[1].h = yres / 4;
+    windows[1].color[1] = 0; windows[1].color[1] = 75; windows[1].color[2] = 100; 
+
+    windows[0].rank = 0;
+    windows[1].rank = 1;
+
+#if 0
+
+static void set_color (int r, int g, int b, int a,
+    int x, int y, int w, int h) {
+
+set_color (150, 75, 0, 255, 30, 40, xres / 4, yres / 4);
+set_color (0, 75, 100, 255, 530, 540, xres / 4, yres / 4);
+#endif
+
+    force_render = true;
     while (1) {
-        ret = render();
+        ret = render(force_render);
         if (ret) {
             printf ("drmModeSetCrtc failed w/ ret: %d\n", ret);
             ret = -1;
             goto input_thread_teardown;
         }
+        force_render = false;
     }
 
     ret = 0;
@@ -252,7 +285,7 @@ input_thread_teardown:
     kill = true;
     teardown_input();
 dumb_unmap:
-   munmap (buf_mmap, buf_size); 
+    munmap (buf_mmap, buf_size); 
 free_dumb:
     destroy_dumb_args.handle = buf_handle; 
     ioctl (fd, DRM_IOCTL_MODE_DESTROY_DUMB, &destroy_dumb_args); 

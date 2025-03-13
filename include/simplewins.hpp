@@ -11,3 +11,5 @@
 
 // CPP headers 
 #include <string>
+#include <algorithm>
+#include <vector>
